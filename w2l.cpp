@@ -17,11 +17,14 @@
 #include "decoder/Decoder.h"
 #include "lm/KenLM.h"
 #include "decoder/Trie.h"
+#include "decoder/WordLMDecoder.h"
 
 using namespace w2l;
 
 class EngineBase {
 public:
+    EngineBase(const char *tokensPath) : tokenDict(tokensPath) {}
+
     int numClasses;
     std::unordered_map<std::string, std::string> config;
     std::shared_ptr<fl::Module> network;
@@ -58,7 +61,7 @@ public:
 
 class Engine : public EngineBase {
 public:
-    Engine(const char *acousticModelPath, const char *tokensPath) {
+    Engine(const char *acousticModelPath, const char *tokensPath) : EngineBase(tokensPath) {
         // TODO: set criterionType "correctly"
         W2lSerializer::load(acousticModelPath, config, network, criterion);
         auto flags = config.find(kGflags);
@@ -69,7 +72,7 @@ public:
         network->eval();
         criterion->eval();
 
-        tokenDict = createTokenDict(tokensPath);
+        tokenDict = Dictionary(tokensPath);
         numClasses = tokenDict.indexSize();
     }
     ~Engine() {}
@@ -95,19 +98,20 @@ public:
 
         int silIdx = engine->tokenDict.getIndex(kSilToken);
         int blankIdx = engine->criterionType == kCtcCriterion ? engine->tokenDict.getIndex(kBlankToken) : -1;
-        int unkIdx = lm->index(kUnkToken);
-        auto trie = std::make_shared<Trie>(engine->tokenDict.indexSize(), silIdx);
+        int unkIdx = wordDict.getIndex(kUnkToken);
+        trie = std::make_shared<Trie>(engine->tokenDict.indexSize(), silIdx);
         auto start_state = lm->start(false);
         for (auto& it : lexicon) {
             std::string word = it.first;
-            int lmIdx = lm->index(word);
-            if (lmIdx == unkIdx) { // We don't insert unknown words
-                continue;
-            }
+            int usrIdx = wordDict.getIndex(word);
             float score;
-            auto dummyState = lm->score(start_state, lmIdx, score);
+            LMStatePtr dummyState;
+            // if (lmIdx == unkIdx) { // We don't insert unknown words
+            //     continue;
+            // }
+            std::tie(dummyState, score) = lm->score(start_state, usrIdx);
             for (auto& tokens : it.second) {
-                auto tokensTensor = tokensTensor(tokens, engine->tokenDict);
+                auto tokensTensor = tkn2Idx(tokens, engine->tokenDict, FLAGS_replabel);
                 trie->insert(
                         tokensTensor,
                         wordDict.getIndex(word),
@@ -131,34 +135,33 @@ public:
         trie->smear(smear_mode);
         std::cout << 4 << std::endl;
 
-        auto unk = std::make_shared<TrieLabel>(unkIdx, wordDict.getIndex(kUnkToken));
-        decoder = std::make_shared<Decoder>(trie, lm, silIdx, blankIdx, unk);
-
         std::cout << 5 << std::endl;
-        lm = std::make_shared<KenLM>(languageModelPath);
+        lm = std::make_shared<KenLM>(languageModelPath, engine->tokenDict);
 
         std::cout << 6 << std::endl;
-        ModelType modelType = ModelType::ASG;
-        if (engine->criterionType == kCtcCriterion) {
-            modelType = ModelType::CTC;
-        } else if (engine->criterionType != kAsgCriterion) {
-            // FIXME:
-            LOG(FATAL) << "[Decoder] Invalid model type: " << engine->criterionType;
+
+        CriterionType criterionType = CriterionType::ASG;
+        if (FLAGS_criterion == kCtcCriterion) {
+          criterionType = CriterionType::CTC;
+        } else if (FLAGS_criterion == kSeq2SeqCriterion) {
+          criterionType = CriterionType::S2S;
+        } else if (FLAGS_criterion != kAsgCriterion) {
+          LOG(FATAL) << "[Decoder] Invalid model type: " << FLAGS_criterion;
         }
-        std::cout << 7 << std::endl;
+
 
         // FIXME, don't use global flags
         decoderOpt = DecoderOptions(
             FLAGS_beamsize,
-            static_cast<float>(FLAGS_beamscore),
+            static_cast<float>(FLAGS_beamthreshold),
             static_cast<float>(FLAGS_lmweight),
             static_cast<float>(FLAGS_wordscore),
             static_cast<float>(FLAGS_unkweight),
-            FLAGS_forceendsil,
             FLAGS_logadd,
             static_cast<float>(FLAGS_silweight),
-            modelType);
-        std::cout << 8 << std::endl;
+            criterionType);
+
+        LOG(INFO) << "[w2lapi] Loaded decoder options";
     }
     ~WrapDecoder() {}
 
@@ -169,18 +172,45 @@ public:
         int N = rawEmission.dims(0);
         int T = rawEmission.dims(1);
 
-        std::vector<float> score;
-        std::vector<std::vector<int>> wordPredictions;
-        std::vector<std::vector<int>> letterPredictions;
-        std::tie(score, wordPredictions, letterPredictions) = decoder->decode(
-            decoderOpt, &transition[0], emissionVec.data(), T, N);
-        auto wordPrediction = wordPredictions[0];
-        auto words = tensor2words(wordPrediction, wordDict);
+        w2l::WordLMDecoder decoder(
+            decoderOpt,
+            trie,
+            lm,
+            silIdx,
+            blankIdx,
+            unkIdx,
+            transition);
+
+        LOG(INFO) << "[w2lapi] Created WordLMDecdoer";
+
+        auto data = afToVector<float>(emission->emission.array());
+        auto results = decoder.decode(data.data(), T, N);
+
+        // Cleanup predictions
+        auto& rawWordPrediction = results[0].words;
+        auto& rawTokenPrediction = results[0].tokens;
+
+        auto letterPrediction =
+            tknPrediction2Ltr(rawTokenPrediction, emission->engine->tokenDict);
+        std::vector<std::string> wordPrediction;
+        if (!FLAGS_lexicon.empty() && FLAGS_criterion != kSeq2SeqCriterion) {
+          rawWordPrediction =
+              validateIdx(rawWordPrediction, wordDict.getIndex(kUnkToken));
+          wordPrediction = wrdIdx2Wrd(rawWordPrediction, wordDict);
+        } else {
+          wordPrediction = tkn2Wrd(letterPrediction);
+        }
+
+        auto words = join(" ", wordPrediction);
+
         return strdup(words.c_str());
     }
 
     std::shared_ptr<KenLM> lm;
-    std::shared_ptr<Decoder> decoder;
+    std::shared_ptr<Trie> trie;
+    int silIdx;
+    int blankIdx;
+    int unkIdx;
     Dictionary wordDict;
     DecoderOptions decoderOpt;
 };
