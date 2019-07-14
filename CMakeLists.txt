@@ -239,7 +239,7 @@ target_link_libraries(
   )
 
 # ----------------------------- libw2l -----------------------------
-add_library(w2l w2l.cpp)
+add_library(w2l SHARED w2l.cpp)
 target_link_libraries(w2l wav2letter++)
 
 target_include_directories(
@@ -249,3 +249,13 @@ target_include_directories(
   ${PROJECT_SOURCE_DIR}/src/libraries
   ${FFTW_INCLUDES}
   )
+
+# API export
+include(GNUInstallDirs)
+set_target_properties(w2l PROPERTIES
+  PUBLIC_HEADER w2l.h
+  SOVERSION 1
+  )
+install(TARGETS w2l
+  LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+  PUBLIC_HEADER DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
