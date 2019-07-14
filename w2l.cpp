@@ -14,9 +14,9 @@
 #include "module/module.h"
 #include "runtime/Logger.h"
 #include "runtime/Serial.h"
-#include "decoder/Decoder.hpp"
-#include "decoder/KenLM.hpp"
-#include "decoder/Trie.hpp"
+#include "decoder/Decoder.h"
+#include "lm/KenLM.h"
+#include "decoder/Trie.h"
 
 using namespace w2l;
 
@@ -44,7 +44,7 @@ public:
             uniq(viterbiPath);
         }
         remapLabels(viterbiPath, engine->tokenDict);
-        auto letters = tensor2letters(viterbiPath, engine->tokenDict);
+        auto letters = letters(viterbiPath, engine->tokenDict);
         if (letters.size() > 0) {
             std::string str = tensor2letters(viterbiPath, engine->tokenDict);
             return strdup(str.c_str());
@@ -107,10 +107,10 @@ public:
             float score;
             auto dummyState = lm->score(start_state, lmIdx, score);
             for (auto& tokens : it.second) {
-                auto tokensTensor = tokens2Tensor(tokens, engine->tokenDict);
+                auto tokensTensor = tokensTensor(tokens, engine->tokenDict);
                 trie->insert(
                         tokensTensor,
-                        std::make_shared<TrieLabel>(lmIdx, wordDict.getIndex(word)),
+                        wordDict.getIndex(word),
                         score);
             }
         }

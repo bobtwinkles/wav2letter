@@ -45,6 +45,13 @@ target_include_directories(
   wav2letter-libraries
   PUBLIC
   ${PROJECT_SOURCE_DIR}/src
+  ${FFTW_INCLUDES}
+  )
+
+target_include_directories(
+  wav2letter-libraries
+  PRIVATE
+  ${FFTW_INCLUDES}
   )
 
 target_compile_definitions(

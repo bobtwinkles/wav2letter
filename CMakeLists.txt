@@ -190,6 +190,7 @@ target_include_directories(
   PUBLIC
   ${PROJECT_SOURCE_DIR}/src # all includes are based at src/
   ${FLASHLIGHT_INCLUDE_DIRS} # includes are <flashlight/...>
+  ${FFTW_INCLUDES}
   )
 
 # Build experimental assets if specified
@@ -240,3 +241,11 @@ target_link_libraries(
 # ----------------------------- libw2l -----------------------------
 add_library(w2l w2l.cpp)
 target_link_libraries(w2l wav2letter++)
+
+target_include_directories(
+  w2l
+  PRIVATE
+  ${PROJECT_SOURCE_DIR}/src
+  ${PROJECT_SOURCE_DIR}/src/libraries
+  ${FFTW_INCLUDES}
+  )
