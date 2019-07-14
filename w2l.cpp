@@ -141,7 +141,7 @@ private:
             auto lastParam = pretty.rfind(",") + 2;
             auto dim = pretty.substr(lastParam, pretty.size() - lastParam - 1);
             f << "WN " << dim << " ";
-            exportLayer(f, wn->module().get());
+            //exportLayer(f, wn->module().get());
         } else if (type == "View") {
             auto ratio = findParens(pretty);
             f << "V " << findParens(pretty) << "\n";
