@@ -42,17 +42,18 @@ public:
     ~Emission() {}
 
     char *text() {
-        auto viterbiPath = afToVector<int>(engine->criterion->viterbiPath(emission.array()));
-        if (engine->criterionType == kCtcCriterion || engine->criterionType == kAsgCriterion) {
-            uniq(viterbiPath);
-        }
-        remapLabels(viterbiPath, engine->tokenDict);
-        auto letters = letters(viterbiPath, engine->tokenDict);
-        if (letters.size() > 0) {
-            std::string str = tensor2letters(viterbiPath, engine->tokenDict);
-            return strdup(str.c_str());
-        }
-        return strdup("");
+        LOG(FATAL) << "Getting text directly from an emission is not currently supported\n";
+        // auto viterbiPath = afToVector<int>(engine->criterion->viterbiPath(emission.array()));
+        // if (engine->criterionType == kCtcCriterion || engine->criterionType == kAsgCriterion) {
+        //     uniq(viterbiPath);
+        // }
+        // remapLabels(viterbiPath, engine->tokenDict);
+        // auto letters = tknPrediction2Ltr(viterbiPath, engine->tokenDict);
+        // if (letters.size() > 0) {
+        //     std::string str = tensor2letters(viterbiPath, engine->tokenDict);
+        //     return strdup(str.c_str());
+        // }
+        // return strdup("");
     }
 
     EngineBase *engine;
